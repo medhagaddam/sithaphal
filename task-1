@@ -1,0 +1,98 @@
+#pip install PyMuPDF sentence-transformers faiss-cpu
+import fitz  
+
+def extract_text_from_pdf(pdf_path):
+    """
+    Extracts text from each page of the PDF file and returns a list of strings (one per page).
+    """
+    document = fitz.open(pdf_path)
+    pages_text = []
+    
+    for page_num in range(document.page_count):
+        page = document.load_page(page_num)  
+        text = page.get_text()  
+        pages_text.append(text)
+    
+    return pages_text
+
+
+pdf_path = "C:/Users/medha/Downloads/my_pdf_file.pdf"  
+pages_text = extract_text_from_pdf(pdf_path)
+print(f"Extracted text from {len(pages_text)} pages.")
+def chunk_text(text, chunk_size=500):
+    """
+    Splits the text into chunks of size `chunk_size` (in number of characters).
+    This can be adjusted based on the document structure (e.g., by paragraphs or sentences).
+    """
+    chunks = []
+    current_chunk = ""
+    
+    for line in text.split('\n'):
+        if len(current_chunk) + len(line) <= chunk_size:
+            current_chunk += line + "\n"
+        else:
+            chunks.append(current_chunk.strip())
+            current_chunk = line + "\n"
+    
+    if current_chunk:  
+        chunks.append(current_chunk.strip())
+    
+    return chunks
+
+
+page_text = pages_text[0]  
+chunks = chunk_text(page_text, chunk_size=500)  
+from sentence_transformers import SentenceTransformer
+
+def get_embeddings(text_chunks):
+    """
+    Convert a list of text chunks into embeddings using a pre-trained SentenceTransformer model.
+    """
+    model = SentenceTransformer('all-MiniLM-L6-v2')  
+    embeddings = model.encode(text_chunks, convert_to_tensor=True)
+    return embeddings
+
+
+embeddings = get_embeddings(chunks)
+print(f"Generated embeddings for {len(chunks)} chunks.")
+import faiss
+import numpy as np
+
+def create_faiss_index(embeddings):
+    """
+    Create a FAISS index for efficient similarity search.
+    Assumes that embeddings are in numpy array format.
+    """
+    
+    embeddings_np = embeddings.cpu().numpy()  
+    dim = embeddings_np.shape[1]  
+    index = faiss.IndexFlatL2(dim)  
+    index.add(embeddings_np)
+    
+    return index
+
+
+faiss_index = create_faiss_index(embeddings)
+print(f"FAISS index created with {embeddings.shape[0]} embeddings.")
+def search_faiss_index(query, faiss_index, model, top_k=5):
+    """
+    Search the FAISS index to find the top_k most similar text chunks for the user's query.
+    """
+    query_embedding = model.encode([query], convert_to_tensor=True)
+    query_embedding_np = query_embedding.cpu().numpy()
+
+   
+    distances, indices = faiss_index.search(query_embedding_np, top_k)
+    
+    return distances, indices
+
+
+query = "What is the unemployment rate for Bachelor's degree holders?"
+distances, indices = search_faiss_index(query, faiss_index, model)
+
+
+for i in range(len(indices[0])):
+    print(f"Rank {i+1}:")
+    print(f"Distance: {distances[0][i]}")
+    print(f"Text: {chunks[indices[0][i]]}")
+    print("-----")
